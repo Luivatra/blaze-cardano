@@ -108,6 +108,8 @@ class Generator {
     this.writeLine(`type Data = PlutusData;`);
     this.writeLine(`type Int = bigint;`);
     this.writeLine(`type ByteArray = string;`);
+    this.writeLine(`type PolicyId = string;`);
+    this.writeLine(`type ScriptHash = string;`);
 
     if (useSdk) {
       this.writeLine(`type OutputReference = Core.TransactionInput;`);
@@ -144,10 +146,15 @@ class Generator {
   }
 
   public typeName(declaration: { $ref: string }): string {
-    const name = this.definitionName(declaration);
-    const parts = name.split("/");
-    const type = parts[parts.length - 1]!;
-    return type;
+    return this.cleanTypeName(this.definitionName(declaration));
+  }
+
+  public cleanTypeName(name: string): string {
+    return name.split("$").map((part) => {
+      return part.split("_").map((subpart) => {
+        return subpart.split("/").pop()!;
+      }).join("_");
+    }).join("$");
   }
 
   public writeModule(definitions: Record<string, Annotated<Schema>>) {
@@ -161,8 +168,7 @@ class Generator {
       if (name.startsWith("List$")) {
         continue;
       }
-      const parts = name.split("/");
-      const normalizedName = parts[parts.length - 1];
+      const normalizedName = this.cleanTypeName(name);
       types.push(normalizedName);
       this.buildLine(`${normalizedName}: `);
       this.writeTypeboxType(definition, definitions);
@@ -252,11 +258,11 @@ class Generator {
       this.indent();
       for (const param of params) {
         if ("$ref" in param.schema) {
-          const typeName = this.typeName(param.schema);
+          const typeName = this.definitionName(param.schema);
           if (this.isStandardType(typeName)) {
             this.writeTypeboxType(param.schema, blueprint.definitions);
           } else {
-            this.buildLine(typeName);
+            this.buildLine(`${this.cleanTypeName(typeName)},`);
           }
         } else {
           console.log("???", param);
@@ -315,7 +321,7 @@ class Generator {
           this.finishLine(`Type.Object({`);
           this.indent();
           for (const field of schema.fields) {
-            this.buildLine(`${field.title || "Wrapper"}: `);
+            this.buildLine(`${Generator.snakeToCamel(field.title) || "Wrapper"}: `);
             this.writeTypeboxType(field, definitions, stack);
             this.finishLine(`,`);
           }
@@ -394,7 +400,7 @@ class Generator {
           this.finishLine("Type.Object({");
           this.indent();
           for (const field of item.fields) {
-            this.buildLine(`${field.title}: `);
+            this.buildLine(`${Generator.snakeToCamel(field.title)}: `);
             this.writeTypeboxType(field, definitions, stack);
             this.finishLine(",");
           }
@@ -427,7 +433,8 @@ class Generator {
           ...stack,
         ]);
       } else {
-        this.buildLine(`Type.Ref("${definition.title}")`);
+        const typeName = this.cleanTypeName(resolvedName);
+        this.buildLine(`Type.Ref("${typeName}")`);
       }
     } else {
       this.buildLine("Type.Unsafe<PlutusData>(Type.Any())");
